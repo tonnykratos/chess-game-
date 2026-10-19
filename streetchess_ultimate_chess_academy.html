@@ -1,0 +1,1350 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>StreetChess - Mobile GM Edition</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Permanent+Marker&family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- Chess.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <!-- PeerJS for WebRTC Multiplayer -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        street: {
+                            bg: '#0B0F19',
+                            card: '#151D2A',
+                            border: '#222F43',
+                            neonGreen: '#22C55E',
+                            neonCyan: '#38BDF8',
+                            neonPurple: '#A855F7',
+                            neonPink: '#EC4899',
+                            neonGold: '#FDE047',
+                            boardDark: '#0F172A',
+                            boardLight: '#334155',
+                        }
+                    },
+                    fontFamily: {
+                        graffiti: ['"Permanent Marker"', 'cursive'],
+                        sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        :root {
+            --sat: env(safe-area-inset-top, 0px);
+            --sab: env(safe-area-inset-bottom, 0px);
+        }
+
+        body {
+            background-color: #0B0F19;
+            color: #F8FAFC;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+            padding-bottom: calc(var(--sab) + 68px);
+        }
+
+        /* Responsive Chessboard Container */
+        .board-wrapper {
+            width: 100%;
+            max-width: 520px;
+            margin: 0 auto;
+        }
+
+        .board-container {
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 0 25px rgba(56, 189, 248, 0.25), 0 10px 25px rgba(0, 0, 0, 0.8);
+            border: 3px solid #222F43;
+            position: relative;
+        }
+
+        .square {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            touch-action: none;
+            transition: background-color 0.12s ease;
+        }
+
+        .square.light {
+            background-color: #334155;
+        }
+
+        .square.dark {
+            background-color: #0F172A;
+        }
+
+        .square.selected {
+            background-color: rgba(56, 189, 248, 0.5) !important;
+            box-shadow: inset 0 0 12px #38BDF8;
+        }
+
+        .square.last-move {
+            background-color: rgba(253, 224, 71, 0.35) !important;
+            box-shadow: inset 0 0 8px #FDE047;
+        }
+
+        .square.in-check {
+            background-color: rgba(239, 68, 68, 0.65) !important;
+            animation: pulse-check 0.9s infinite alternate;
+        }
+
+        @keyframes pulse-check {
+            0% { box-shadow: inset 0 0 6px #EF4444; }
+            100% { box-shadow: inset 0 0 22px #EF4444; }
+        }
+
+        /* Touch-Friendly Move Indicators */
+        .move-dot {
+            width: 34%;
+            height: 34%;
+            background-color: #22C55E;
+            border-radius: 50%;
+            pointer-events: none;
+            box-shadow: 0 0 10px #22C55E, 0 0 2px #FFFFFF;
+            z-index: 20;
+        }
+
+        .capture-ring {
+            width: 88%;
+            height: 88%;
+            border: 4px solid #EC4899;
+            border-radius: 50%;
+            position: absolute;
+            pointer-events: none;
+            box-shadow: 0 0 12px #EC4899;
+            z-index: 20;
+        }
+
+        /* Vector Piece Styling */
+        .piece {
+            width: 88%;
+            height: 88%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            transition: transform 0.1s cubic-bezier(0.34, 1.56, 0.64, 1);
+            filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.8));
+        }
+
+        .square:active .piece {
+            transform: scale(1.15);
+        }
+
+        /* Board Coordinates */
+        .coord {
+            position: absolute;
+            font-size: 9px;
+            font-weight: 800;
+            pointer-events: none;
+            line-height: 1;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+        }
+
+        .coord-file {
+            bottom: 2px;
+            right: 3px;
+            color: #94A3B8;
+        }
+
+        .coord-rank {
+            top: 2px;
+            left: 3px;
+            color: #94A3B8;
+        }
+
+        .glass-panel {
+            background: rgba(21, 29, 42, 0.88);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(34, 47, 67, 0.85);
+        }
+
+        /* Smooth scrollbars */
+        ::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #151D2A;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #222F43;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="min-h-full flex flex-col justify-between">
+
+    <!-- HEADER / NAVIGATION BAR -->
+    <header class="border-b border-street-border glass-panel sticky top-0 z-40 px-3 py-2.5">
+        <div class="max-w-6xl mx-auto flex items-center justify-between">
+            <div class="flex items-center space-x-2.5" onclick="switchTab('play')">
+                <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-400 via-emerald-400 to-pink-500 flex items-center justify-center text-slate-950 font-black text-xl shadow-md">
+                    <i class="fa-solid fa-chess-king"></i>
+                </div>
+                <div>
+                    <h1 class="font-graffiti text-xl tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-emerald-400 to-pink-500 leading-none">
+                        STREET<span class="text-white">CHESS</span>
+                    </h1>
+                    <p class="text-[9px] text-cyan-400 font-extrabold uppercase tracking-widest mt-0.5">Mobile GM Edition</p>
+                </div>
+            </div>
+
+            <div class="flex items-center space-x-2">
+                <button onclick="toggleAudio()" id="btn-audio" class="p-2.5 rounded-xl bg-street-card border border-street-border active:scale-95 text-cyan-400 transition" title="Toggle Sound">
+                    <i id="audio-icon" class="fa-solid fa-volume-high"></i>
+                </button>
+                <button onclick="toggleMobileMenu()" class="md:hidden p-2.5 rounded-xl bg-street-card border border-street-border active:scale-95 text-gray-300">
+                    <i class="fa-solid fa-ellipsis-vertical"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN BODY DISPLAY -->
+    <main class="flex-1 max-w-6xl w-full mx-auto p-3 sm:p-5 flex flex-col justify-center">
+
+        <!-- TAB 1: PLAY VS AI / PASS & PLAY -->
+        <section id="tab-play" class="tab-content grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+            
+            <!-- CHESSBOARD & PLAYER STATUS (CENTER MOBILE DISPLAY) -->
+            <div class="lg:col-span-7 flex flex-col items-center space-y-2.5 order-1">
+                
+                <!-- TOP OPPONENT BAR -->
+                <div class="w-full max-w-[520px] glass-panel px-3.5 py-2 rounded-xl border border-street-border flex items-center justify-between">
+                    <div class="flex items-center space-x-2.5">
+                        <div class="w-9 h-9 rounded-xl bg-pink-500/20 border border-pink-500/50 flex items-center justify-center text-pink-400 text-lg font-bold shadow-sm">
+                            <i id="top-avatar" class="fa-solid fa-robot"></i>
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-1.5">
+                                <h4 id="top-name" class="text-xs font-black text-gray-100">Magnus AI</h4>
+                                <span id="top-tag" class="text-[9px] bg-pink-500/20 text-pink-300 font-black px-1.5 py-0.5 rounded border border-pink-500/30">GM 3000</span>
+                            </div>
+                            <div id="top-captured" class="text-xs text-gray-300 min-h-[18px] flex items-center gap-0.5 font-mono"></div>
+                        </div>
+                    </div>
+                    <div id="top-clock" class="text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-gray-300">
+                        --:--
+                    </div>
+                </div>
+
+                <!-- BOARD & EVAL BAR -->
+                <div class="board-wrapper flex gap-2 items-stretch">
+                    <!-- Dynamic Eval Bar -->
+                    <div class="w-3 bg-slate-900 rounded-full border border-street-border overflow-hidden flex flex-col justify-end relative" title="Engine Evaluation">
+                        <div id="eval-bar-fill" class="w-full bg-gradient-to-t from-amber-300 to-white transition-all duration-300" style="height: 50%;"></div>
+                        <span id="eval-text" class="absolute top-1 left-1/2 -translate-x-1/2 text-[8px] font-mono font-black text-cyan-400 mix-blend-difference">0.0</span>
+                    </div>
+
+                    <!-- BOARD CONTAINER -->
+                    <div id="chessboard" class="board-container flex-1"></div>
+                </div>
+
+                <!-- BOTTOM PLAYER BAR -->
+                <div class="w-full max-w-[520px] glass-panel px-3.5 py-2 rounded-xl border border-street-border flex items-center justify-between">
+                    <div class="flex items-center space-x-2.5">
+                        <div class="w-9 h-9 rounded-xl bg-cyan-500/20 border border-cyan-500/50 flex items-center justify-center text-cyan-400 text-lg font-bold shadow-sm">
+                            <i id="bottom-avatar" class="fa-solid fa-user"></i>
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-1.5">
+                                <h4 id="bottom-name" class="text-xs font-black text-gray-100">You</h4>
+                                <span id="bottom-tag" class="text-[9px] bg-cyan-500/20 text-cyan-300 font-black px-1.5 py-0.5 rounded border border-cyan-500/30">PLAYER</span>
+                            </div>
+                            <div id="bottom-captured" class="text-xs text-gray-300 min-h-[18px] flex items-center gap-0.5 font-mono"></div>
+                        </div>
+                    </div>
+                    <div id="status-turn" class="text-[11px] font-extrabold px-3 py-1 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 flex items-center gap-1.5 shadow-sm">
+                        <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span> Your Turn
+                    </div>
+                </div>
+
+                <!-- QUICK MOBILE CONTROL TOOLBAR -->
+                <div class="w-full max-w-[520px] grid grid-cols-4 gap-2 pt-1">
+                    <button onclick="requestHint()" class="py-2.5 rounded-xl bg-slate-900 active:bg-slate-800 border border-slate-800 text-amber-400 text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition">
+                        <i class="fa-solid fa-lightbulb"></i> Hint
+                    </button>
+                    <button onclick="undoMove()" class="py-2.5 rounded-xl bg-slate-900 active:bg-slate-800 border border-slate-800 text-cyan-400 text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition">
+                        <i class="fa-solid fa-rotate-left"></i> Undo
+                    </button>
+                    <button onclick="flipBoard()" class="py-2.5 rounded-xl bg-slate-900 active:bg-slate-800 border border-slate-800 text-emerald-400 text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition">
+                        <i class="fa-solid fa-repeat"></i> Flip
+                    </button>
+                    <button onclick="restartGame()" class="py-2.5 rounded-xl bg-slate-900 active:bg-slate-800 border border-slate-800 text-pink-400 text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition">
+                        <i class="fa-solid fa-power-off"></i> Reset
+                    </button>
+                </div>
+
+            </div>
+
+            <!-- CONTROLS & AI SETTINGS (RIGHT DESKTOP / COLLAPSIBLE MOBILE) -->
+            <div class="lg:col-span-5 space-y-3 order-2">
+                <!-- AI Difficulty Drawer -->
+                <div class="glass-panel p-3.5 rounded-2xl border border-street-border space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-xs uppercase font-extrabold tracking-wider text-cyan-400 flex items-center gap-1.5">
+                            <i class="fa-solid fa-robot"></i> AI Opponent Difficulty
+                        </h3>
+                        <span id="ai-elo-badge" class="text-[10px] bg-cyan-500/20 text-cyan-300 font-mono font-bold px-2 py-0.5 rounded border border-cyan-500/30">
+                            3000 ELO
+                        </span>
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between text-xs font-bold text-gray-200 mb-1">
+                            <span id="ai-level-title">Level 8: Magnus Carlsen</span>
+                            <span class="text-pink-400 font-mono text-[10px]" id="ai-style-info">World Champion</span>
+                        </div>
+                        <input type="range" id="ai-slider" min="1" max="8" value="8" step="1" oninput="changeAILevel(this.value)" class="w-full h-2.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400 border border-slate-700">
+                    </div>
+
+                    <div class="flex gap-2 pt-1">
+                        <button onclick="setPlayerColor('w')" id="btn-side-w" class="flex-1 py-2 rounded-xl border border-cyan-500/60 bg-cyan-500/20 text-cyan-300 font-extrabold text-xs flex items-center justify-center gap-1 shadow-sm">
+                            <i class="fa-solid fa-chess-king text-amber-300"></i> White Side
+                        </button>
+                        <button onclick="setPlayerColor('b')" id="btn-side-b" class="flex-1 py-2 rounded-xl border border-street-border bg-slate-800/40 text-gray-400 font-extrabold text-xs flex items-center justify-center gap-1 hover:border-slate-600">
+                            <i class="fa-solid fa-chess-king text-cyan-400"></i> Black Side
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Move Notation Log -->
+                <div class="glass-panel p-3.5 rounded-2xl border border-street-border h-[220px] flex flex-col">
+                    <div class="flex items-center justify-between mb-2 pb-2 border-b border-street-border">
+                        <h3 class="text-xs uppercase font-extrabold tracking-wider text-emerald-400 flex items-center gap-1.5">
+                            <i class="fa-solid fa-list-ol"></i> Move Notation
+                        </h3>
+                        <button onclick="copyPGN()" class="text-[10px] bg-slate-900 border border-slate-700 hover:border-cyan-500 text-gray-300 px-2.5 py-1 rounded-lg font-bold flex items-center gap-1">
+                            <i class="fa-solid fa-copy"></i> PGN
+                        </button>
+                    </div>
+                    <div id="notation-log" class="flex-1 overflow-y-auto space-y-1 text-xs font-mono pr-1">
+                        <div class="text-gray-500 italic text-center py-8">Game ready. Make your first move!</div>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+
+        <!-- TAB 2: INTERACTIVE OPENINGS & DEFENSES ACADEMY -->
+        <section id="tab-academy" class="tab-content hidden grid grid-cols-1 lg:grid-cols-12 gap-4">
+            
+            <!-- ACADEMY LIST MENU -->
+            <div class="lg:col-span-4 space-y-3">
+                <div class="glass-panel p-3.5 rounded-2xl border border-street-border">
+                    <h3 class="text-xs font-black uppercase tracking-wider text-cyan-400 mb-2.5 flex items-center gap-2">
+                        <i class="fa-solid fa-graduation-cap text-sm"></i> Openings & Defenses Master
+                    </h3>
+
+                    <!-- Search Filter -->
+                    <div class="mb-2.5">
+                        <input type="text" id="academy-search" onkeyup="renderAcademyList()" placeholder="Search openings, e.g. Sicilian, e4..." class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500">
+                    </div>
+
+                    <!-- White vs Black Toggle -->
+                    <div class="flex rounded-xl bg-slate-900 p-1 border border-street-border mb-2.5">
+                        <button onclick="setAcademyCat('white')" id="acad-btn-w" class="flex-1 py-1.5 text-xs font-extrabold rounded-lg bg-cyan-500 text-slate-950 transition">
+                            White Attacks
+                        </button>
+                        <button onclick="setAcademyCat('black')" id="acad-btn-b" class="flex-1 py-1.5 text-xs font-extrabold rounded-lg text-gray-400 transition">
+                            Black Defenses
+                        </button>
+                    </div>
+
+                    <!-- List Container -->
+                    <div id="academy-list" class="space-y-1.5 max-h-[320px] overflow-y-auto pr-1">
+                        <!-- Populated via JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- ACADEMY TRAINER BOARD & EXPLANATION -->
+            <div class="lg:col-span-8 space-y-3">
+                <div class="glass-panel p-4 rounded-2xl border border-street-border space-y-3">
+                    <div class="flex items-center justify-between border-b border-street-border pb-3 flex-wrap gap-2">
+                        <div>
+                            <span id="acad-badge" class="text-[9px] uppercase font-black px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300">White Attack</span>
+                            <h2 id="acad-title" class="text-base font-black text-white mt-0.5">Ruy Lopez</h2>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button onclick="acadPrev()" class="p-2 bg-slate-900 hover:bg-slate-800 text-gray-200 rounded-xl text-xs font-bold border border-slate-800 active:scale-95 transition">
+                                <i class="fa-solid fa-chevron-left"></i> Prev
+                            </button>
+                            <span id="acad-step" class="text-xs font-mono bg-slate-900 px-3 py-1.5 rounded-xl text-cyan-400 font-extrabold border border-slate-800">0/0</span>
+                            <button onclick="acadNext()" class="p-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 rounded-xl text-xs font-extrabold active:scale-95 transition">
+                                Next <i class="fa-solid fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
+                        <!-- Academy Mini-Board -->
+                        <div class="md:col-span-6 flex justify-center">
+                            <div class="board-wrapper max-w-[340px]">
+                                <div id="academy-board" class="board-container"></div>
+                            </div>
+                        </div>
+
+                        <!-- Strategic Breakdown -->
+                        <div class="md:col-span-6 flex flex-col justify-between space-y-3">
+                            <div class="bg-slate-900/90 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
+                                <h4 class="text-xs font-black uppercase text-emerald-400 tracking-wider flex items-center gap-1.5">
+                                    <i class="fa-solid fa-brain"></i> Tactical Overview
+                                </h4>
+                                <p id="acad-desc" class="text-xs text-gray-300 leading-relaxed">
+                                    Select an opening or defense to view interactive moves.
+                                </p>
+                            </div>
+
+                            <div class="bg-slate-900/90 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
+                                <h4 class="text-xs font-black uppercase text-pink-400 tracking-wider flex items-center gap-1.5">
+                                    <i class="fa-solid fa-crosshairs"></i> Key Plans & Counters
+                                </h4>
+                                <ul id="acad-plans" class="text-xs text-gray-300 space-y-1 list-disc list-inside">
+                                    <li>Controls central d5 square</li>
+                                </ul>
+                            </div>
+
+                            <button onclick="loadAcademyToBoard()" class="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 via-cyan-500 to-pink-500 text-slate-950 font-black text-xs shadow-lg active:scale-95 transition flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-chess-board"></i> Practice Line vs AI Engine
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+
+        <!-- TAB 3: LAN & MULTIPLAYER -->
+        <section id="tab-multiplayer" class="tab-content hidden max-w-3xl mx-auto w-full space-y-4">
+            
+            <div class="text-center space-y-1">
+                <h2 class="text-2xl font-graffiti text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-emerald-400 to-pink-500">
+                    MULTIPLAYER STREET CHESS
+                </h2>
+                <p class="text-xs text-gray-400">
+                    Play with a friend on the same device or wirelessly over LAN/WebRTC.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- PASS & PLAY -->
+                <div class="glass-panel p-5 rounded-2xl border border-street-border flex flex-col justify-between hover:border-cyan-500/50 transition">
+                    <div class="space-y-3">
+                        <div class="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 flex items-center justify-center text-xl">
+                            <i class="fa-solid fa-users"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-base font-black text-white">Same Device (Pass & Play)</h3>
+                            <p class="text-xs text-gray-300 mt-1 leading-relaxed">
+                                Flip the board for face-to-face play on a single smartphone or tablet screen.
+                            </p>
+                        </div>
+                    </div>
+                    <button onclick="startPassPlay()" class="mt-4 w-full py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs uppercase tracking-wider transition active:scale-95">
+                        Start Pass & Play
+                    </button>
+                </div>
+
+                <!-- WEBRTC P2P ROOM -->
+                <div class="glass-panel p-5 rounded-2xl border border-street-border flex flex-col justify-between hover:border-pink-500/50 transition">
+                    <div class="space-y-3">
+                        <div class="w-10 h-10 rounded-xl bg-pink-500/20 text-pink-400 border border-pink-500/40 flex items-center justify-center text-xl">
+                            <i class="fa-solid fa-wifi"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-base font-black text-white">Different Device (P2P / LAN)</h3>
+                            <p class="text-xs text-gray-300 mt-1 leading-relaxed">
+                                Pair two smartphones directly over Wi-Fi or Internet with a room code.
+                            </p>
+                        </div>
+
+                        <div class="space-y-2 pt-1">
+                            <div>
+                                <label class="text-[9px] uppercase font-bold text-gray-400 block mb-1">Your Device Code:</label>
+                                <div class="flex gap-2">
+                                    <input type="text" id="p2p-my-id" readonly placeholder="Generating Code..." class="bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-mono text-pink-400 w-full font-bold">
+                                    <button onclick="copyP2PCode()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs rounded-xl text-gray-200 border border-slate-700 active:scale-95">
+                                        <i class="fa-solid fa-copy"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="text-[9px] uppercase font-bold text-gray-400 block mb-1">Join Opponent's Code:</label>
+                                <div class="flex gap-2">
+                                    <input type="text" id="p2p-peer-id" placeholder="Paste Code..." class="bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-mono text-white w-full">
+                                    <button onclick="connectP2P()" class="px-4 py-1.5 bg-pink-500 hover:bg-pink-400 text-slate-950 font-extrabold text-xs rounded-xl transition active:scale-95">
+                                        Join
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="p2p-status" class="text-xs text-center text-gray-400 italic pt-2 font-semibold">
+                        Status: Ready
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- MOBILE DOCK BOTTOM NAVIGATION -->
+    <nav class="fixed bottom-0 left-0 right-0 z-50 glass-panel border-t border-street-border px-3 py-2 flex justify-around items-center">
+        <button id="nav-play" onclick="switchTab('play')" class="flex flex-col items-center space-y-1 text-cyan-400 transition">
+            <i class="fa-solid fa-gamepad text-lg"></i>
+            <span class="text-[10px] font-extrabold">Play</span>
+        </button>
+        <button id="nav-academy" onclick="switchTab('academy')" class="flex flex-col items-center space-y-1 text-gray-400 hover:text-white transition">
+            <i class="fa-solid fa-graduation-cap text-lg"></i>
+            <span class="text-[10px] font-extrabold">Academy</span>
+        </button>
+        <button id="nav-multiplayer" onclick="switchTab('multiplayer')" class="flex flex-col items-center space-y-1 text-gray-400 hover:text-white transition">
+            <i class="fa-solid fa-network-wired text-lg"></i>
+            <span class="text-[10px] font-extrabold">Friends / LAN</span>
+        </button>
+    </nav>
+
+    <!-- PROMOTION MODAL -->
+    <div id="promo-modal" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+        <div class="glass-panel p-5 rounded-2xl border border-street-border max-w-xs w-full text-center space-y-3">
+            <h3 class="text-base font-black text-white">Pawn Promotion</h3>
+            <p class="text-xs text-gray-300">Choose piece to promote into:</p>
+            <div id="promo-options" class="flex justify-center gap-2.5">
+                <!-- Populated via JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- NOTIFICATION TOAST -->
+    <div id="toast" class="fixed bottom-16 left-1/2 -translate-x-1/2 z-50 transform translate-y-10 opacity-0 transition-all duration-300 pointer-events-none">
+        <div class="glass-panel px-4 py-2.5 rounded-full border border-cyan-500/60 text-cyan-300 text-xs font-extrabold shadow-2xl flex items-center gap-2">
+            <i class="fa-solid fa-circle-info text-cyan-400"></i>
+            <span id="toast-text">Notification message</span>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT CONTROLLER -->
+    <script>
+        /* ===================================================================
+           1. AUDIO SYNTHESIZER & HAPTICS FEEDBACK
+           =================================================================== */
+        class AudioController {
+            constructor() {
+                this.ctx = null;
+                this.enabled = true;
+            }
+
+            init() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            }
+
+            vibrate(ms = 20) {
+                if ('vibrate' in navigator) {
+                    try { navigator.vibrate(ms); } catch (e) {}
+                }
+            }
+
+            playMove() {
+                this.vibrate(15);
+                if (!this.enabled) return;
+                this.init();
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(360, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(140, this.ctx.currentTime + 0.08);
+                gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.08);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.08);
+            }
+
+            playCapture() {
+                this.vibrate(35);
+                if (!this.enabled) return;
+                this.init();
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(600, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(160, this.ctx.currentTime + 0.12);
+                gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.12);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.12);
+            }
+
+            playCheck() {
+                this.vibrate([30, 40, 30]);
+                if (!this.enabled) return;
+                this.init();
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(800, this.ctx.currentTime);
+                osc.frequency.setValueAtTime(1000, this.ctx.currentTime + 0.08);
+                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.18);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.18);
+            }
+        }
+
+        const audio = new AudioController();
+
+        function toggleAudio() {
+            audio.enabled = !audio.enabled;
+            const icon = document.getElementById('audio-icon');
+            if (audio.enabled) {
+                icon.className = 'fa-solid fa-volume-high';
+                showToast('Audio Enabled');
+            } else {
+                icon.className = 'fa-solid fa-volume-xmark text-gray-500';
+                showToast('Audio Muted');
+            }
+        }
+
+
+        /* ===================================================================
+           2. HIGH-CONTRAST NEON VECTOR PIECE TEMPLATES
+           =================================================================== */
+        const PIECE_SVGS = {
+            'w': {
+                'p': `<svg viewBox="0 0 45 45" class="w-full h-full"><path d="M 22.5 9 A 4 4 0 1 1 22.5 17 A 4 4 0 1 1 22.5 9 Z M 15 32 L 30 32 L 28 22 C 28 20 25 18 22.5 18 C 20 18 17 20 17 22 Z M 13 36 L 32 36 L 32 33 L 13 33 Z" fill="#FDE047" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round"/><path d="M 22.5 11 A 2 2 0 1 1 22.5 15 A 2 2 0 1 1 22.5 11 Z" fill="#0F172A"/></svg>`,
+                'r': `<svg viewBox="0 0 45 45" class="w-full h-full"><path d="M 9 39 L 36 39 L 36 36 L 9 36 Z M 12 36 L 12 32 L 33 32 L 33 36 Z M 14 32 L 14 25 L 31 25 L 31 32 Z M 14 25 L 11 14 L 15 14 L 17 18 L 21 18 L 21 14 L 24 14 L 24 18 L 28 18 L 30 14 L 34 14 L 31 25 Z" fill="#FDE047" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round"/><rect x="16" y="27" width="13" height="3" fill="#0F172A" rx="1"/></svg>`,
+                'n': `<svg viewBox="0 0 45 45" class="w-full h-full"><path d="M 22 10 C 22 10 12 11 11 20 C 11 25 14 28 14 28 C 14 28 12 24 16 23 C 20 22 22 25 21 28 C 20 31 16 31 16 31 L 32 31 C 32 31 34 22 29 17 C 27 15 25 10 22 10 Z M 9 39 L 36 39 L 36 35 L 9 35 Z" fill="#FDE047" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round"/><circle cx="16" cy="16" r="2.5" fill="#0F172A"/></svg>`,
+                'b': `<svg viewBox="0 0 45 45" class="w-full h-full"><path d="M 9 36 L 36 36 L 36 33 L 9 33 Z M 11 33 L 11 30 L 34 30 L 34 33 Z M 22.5 10 C 18 14 16 20 16 26 L 29 26 C 29 20 27 14 22.5 10 Z M 22.5 6 A 2 2 0 1 1 22.5 10 A 2 2 0 1 1 22.5 6 Z" fill="#FDE047" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round"/><line x1="22.5" y1="14" x2="22.5" y2="22" stroke="#0F172A" stroke-width="2"/><line x1="19" y1="17" x2="26" y2="17" stroke="#0F172A" stroke-width="2"/></svg>`,
+                'q': `<svg viewBox="0 0 45 45" class="w-full h-full"><path d="M 9 36 L 36 36 L 36 33 L 9 33 Z M 9 33 L 11 28 L 34 28 L 36 33 Z M 11 28 L 8 13 L 16 21 L 22.5 11 L 29 21 L 37 13 L 34 28 Z" fill="#FDE047" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round"/><circle cx="8" cy="12" r="2" fill="#FFFFFF"/><circle cx="16" cy="19" r="2" fill="#FFFFFF"/><circle cx="22.5" cy="9" r="2" fill="#FFFFFF"/><circle cx="29" cy="19" r="2" fill="#FFFFFF"/><circle cx="37" cy="12" r="2" fill="#FFFFFF"/></svg>`,
+                'k': `<svg viewBox="0 0 45 45" class="w-full h-full"><path d="M 22.5 6 L 22.5 13 M 19 9.5 L 26 9.5 M 9 36 L 36 36 L 36 33 L 9 33 Z M 11 33 L 13 28 L 32 28 L 34 33 Z M 13 28 C 11 20 18 14 22.5 14 C 27 14 34 20 32 28 Z" fill="#FDE047" stroke="#FFFFFF" stroke-width="2.5" stroke-linejoin="round"/><circle cx="22.5" cy="20" r="3" fill="#0F172A"/></svg>`
+            },
+            'b': {
+                'p': `<svg viewBox="0 0 45 45" class="w-full h-full"><path d="M 22.5 9 A 4 4 0 1 1 22.5 17 A 4 4 0 1 1 22.5 9 Z M 15 32 L 30 32 L 28 22 C 28 20 25 18 22.5 18 C 20 18 17 20 17 22 Z M 13 36 L 32 36 L 32 33 L 13 33 Z" fill="#0F172A" stroke="#38BDF8" stroke-width="2.2" stroke-linejoin="round"/><circle cx="22.5" cy="13" r="2" fill="#38BDF8"/></svg>`,
+                'r': `<svg viewBox="0 0 45 45" class="w-full h-full"><path d="M 9 39 L 36 39 L 36 36 L 9 36 Z M 12 36 L 12 32 L 33 32 L 33 36 Z M 14 32 L 14 25 L 31 25 L 31 32 Z M 14 25 L 11 14 L 15 14 L 17 18 L 21 18 L 21 14 L 24 14 L 24 18 L 28 18 L 30 14 L 34 14 L 31 25 Z" fill="#0F172A" stroke="#38BDF8" stroke-width="2.2" stroke-linejoin="round"/><rect x="16" y="27" width="13" height="3" fill="#38BDF8" rx="1"/></svg>`,
+                'n': `<svg viewBox="0 0 45 45" class="w-full h-full"><path d="M 22 10 C 22 10 12 11 11 20 C 11 25 14 28 14 28 C 14 28 12 24 16 23 C 20 22 22 25 21 28 C 20 31 16 31 16 31 L 32 31 C 32 31 34 22 29 17 C 27 15 25 10 22 10 Z M 9 39 L 36 39 L 36 35 L 9 35 Z" fill="#0F172A" stroke="#38BDF8" stroke-width="2.2" stroke-linejoin="round"/><circle cx="16" cy="16" r="2.5" fill="#38BDF8"/></svg>`,
+                'b': `<svg viewBox="0 0 45 45" class="w-full h-full"><path d="M 9 36 L 36 36 L 36 33 L 9 33 Z M 11 33 L 11 30 L 34 30 L 34 33 Z M 22.5 10 C 18 14 16 20 16 26 L 29 26 C 29 20 27 14 22.5 10 Z M 22.5 6 A 2 2 0 1 1 22.5 10 A 2 2 0 1 1 22.5 6 Z" fill="#0F172A" stroke="#38BDF8" stroke-width="2.2" stroke-linejoin="round"/><line x1="22.5" y1="14" x2="22.5" y2="22" stroke="#38BDF8" stroke-width="2"/><line x1="19" y1="17" x2="26" y2="17" stroke="#38BDF8" stroke-width="2"/></svg>`,
+                'q': `<svg viewBox="0 0 45 45" class="w-full h-full"><path d="M 9 36 L 36 36 L 36 33 L 9 33 Z M 9 33 L 11 28 L 34 28 L 36 33 Z M 11 28 L 8 13 L 16 21 L 22.5 11 L 29 21 L 37 13 L 34 28 Z" fill="#0F172A" stroke="#38BDF8" stroke-width="2.2" stroke-linejoin="round"/><circle cx="8" cy="12" r="2" fill="#38BDF8"/><circle cx="16" cy="19" r="2" fill="#38BDF8"/><circle cx="22.5" cy="9" r="2" fill="#FFFFFF"/><circle cx="29" cy="19" r="2" fill="#38BDF8"/><circle cx="37" cy="12" r="2" fill="#38BDF8"/></svg>`,
+                'k': `<svg viewBox="0 0 45 45" class="w-full h-full"><path d="M 22.5 6 L 22.5 13 M 19 9.5 L 26 9.5 M 9 36 L 36 36 L 36 33 L 9 33 Z M 11 33 L 13 28 L 32 28 L 34 33 Z M 13 28 C 11 20 18 14 22.5 14 C 27 14 34 20 32 28 Z" fill="#0F172A" stroke="#38BDF8" stroke-width="2.5" stroke-linejoin="round"/><circle cx="22.5" cy="20" r="3" fill="#38BDF8"/></svg>`
+            }
+        };
+
+        const PIECE_UNICODES = {
+            'w': { 'p': '♙', 'r': '♖', 'n': '♘', 'b': '♗', 'q': '♕', 'k': '♔' },
+            'b': { 'p': '♟', 'r': '♜', 'n': '♞', 'b': '♝', 'q': '♛', 'k': '♚' }
+        };
+
+
+        /* ===================================================================
+           3. AI EVALUATION & SEARCH ENGINE
+           =================================================================== */
+        const PIECE_VALS = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 20000 };
+
+        const PST_PAWN = [
+             0,  0,  0,  0,  0,  0,  0,  0,
+            50, 50, 50, 50, 50, 50, 50, 50,
+            10, 10, 20, 30, 30, 20, 10, 10,
+             5,  5, 10, 25, 25, 10,  5,  5,
+             0,  0,  0, 20, 20,  0,  0,  0,
+             5, -5,-10,  0,  0,-10, -5,  5,
+             5, 10, 10,-20,-20, 10, 10,  5,
+             0,  0,  0,  0,  0,  0,  0,  0
+        ];
+
+        const PST_KNIGHT = [
+            -50,-40,-30,-30,-30,-30,-40,-50,
+            -40,-20,  0,  0,  0,  0,-20,-40,
+            -30,  0, 10, 15, 15, 10,  0,-30,
+            -30,  5, 15, 20, 20, 15,  5,-30,
+            -30,  0, 15, 20, 20, 15,  0,-30,
+            -30,  5, 10, 15, 15, 10,  5,-30,
+            -40,-20,  0,  5,  5,  0,-20,-40,
+            -50,-40,-30,-30,-30,-30,-40,-50
+        ];
+
+        function evaluateBoard(gameObj) {
+            let total = 0;
+            const board = gameObj.board();
+
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const p = board[r][c];
+                    if (p) {
+                        const isWhite = p.color === 'w';
+                        let v = PIECE_VALS[p.type];
+                        const idx = isWhite ? (r * 8 + c) : ((7 - r) * 8 + c);
+
+                        if (p.type === 'p') v += PST_PAWN[idx];
+                        else if (p.type === 'n') v += PST_KNIGHT[idx];
+
+                        total += isWhite ? v : -v;
+                    }
+                }
+            }
+            return total;
+        }
+
+        function minimax(gameObj, depth, alpha, beta, isMax) {
+            if (depth === 0 || gameObj.game_over()) return evaluateBoard(gameObj);
+
+            const moves = gameObj.moves();
+            if (isMax) {
+                let maxEval = -Infinity;
+                for (let i = 0; i < moves.length; i++) {
+                    gameObj.move(moves[i]);
+                    let ev = minimax(gameObj, depth - 1, alpha, beta, false);
+                    gameObj.undo();
+                    maxEval = Math.max(maxEval, ev);
+                    alpha = Math.max(alpha, ev);
+                    if (beta <= alpha) break;
+                }
+                return maxEval;
+            } else {
+                let minEval = Infinity;
+                for (let i = 0; i < moves.length; i++) {
+                    gameObj.move(moves[i]);
+                    let ev = minimax(gameObj, depth - 1, alpha, beta, true);
+                    gameObj.undo();
+                    minEval = Math.min(minEval, ev);
+                    beta = Math.min(beta, ev);
+                    if (beta <= alpha) break;
+                }
+                return minEval;
+            }
+        }
+
+        function getBestMove(gameObj, depth) {
+            const moves = gameObj.moves({ verbose: true });
+            if (moves.length === 0) return null;
+
+            moves.sort((a, b) => (b.captured ? 10 : 0) - (a.captured ? 10 : 0));
+
+            let best = null;
+            const isMax = gameObj.turn() === 'w';
+            let bestEval = isMax ? -Infinity : Infinity;
+
+            for (let i = 0; i < moves.length; i++) {
+                gameObj.move(moves[i]);
+                let ev = minimax(gameObj, depth - 1, -Infinity, Infinity, !isMax);
+                gameObj.undo();
+
+                if (isMax) {
+                    if (ev > bestEval) {
+                        bestEval = ev;
+                        best = moves[i];
+                    }
+                } else {
+                    if (ev < bestEval) {
+                        bestEval = ev;
+                        best = moves[i];
+                    }
+                }
+            }
+            return best || moves[Math.floor(Math.random() * moves.length)];
+        }
+
+
+        /* ===================================================================
+           4. GAME STATE & MAIN APP CONTROLLER
+           =================================================================== */
+        const game = new Chess();
+        let boardFlipped = false;
+        let selectedSquare = null;
+        let legalMoves = [];
+        let playerColor = 'w';
+        let aiLevel = 8;
+        let gameMode = 'ai'; // 'ai', 'local', 'p2p'
+        let pendingPromotion = null;
+
+        let peer = null;
+        let p2pConn = null;
+
+        const AI_PRESETS = {
+            1: { name: 'Novice Street', elo: '800 ELO', depth: 1, style: 'Random Moves' },
+            2: { name: 'Casual Hustler', elo: '1100 ELO', depth: 1, style: 'Basic Attacks' },
+            3: { name: 'Club Player', elo: '1400 ELO', depth: 2, style: 'Solid Defense' },
+            4: { name: 'Park Shark', elo: '1700 ELO', depth: 2, style: 'Aggressive' },
+            5: { name: 'City Champ', elo: '2000 ELO', depth: 3, style: 'Tactical' },
+            6: { name: 'National Master', elo: '2300 ELO', depth: 3, style: 'Calculated' },
+            7: { name: 'Super GM', elo: '2600 ELO', depth: 4, style: 'Deep Search' },
+            8: { name: 'Magnus Carlsen', elo: '3000 ELO', depth: 4, style: 'World Champion' }
+        };
+
+        window.onload = function() {
+            renderBoard();
+            updateUI();
+            initAcademy();
+            initP2P();
+        };
+
+        function renderBoard() {
+            const boardEl = document.getElementById('chessboard');
+            boardEl.innerHTML = '';
+
+            const board = game.board();
+            const lastMove = game.history({ verbose: true }).pop();
+            const inCheck = game.in_check();
+
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const row = boardFlipped ? 7 - r : r;
+                    const col = boardFlipped ? 7 - c : c;
+                    const squareName = String.fromCharCode(97 + col) + (8 - row);
+                    const piece = board[row][col];
+
+                    const squareEl = document.createElement('div');
+                    squareEl.className = `square ${(row + col) % 2 === 0 ? 'light' : 'dark'}`;
+                    squareEl.dataset.square = squareName;
+
+                    if (lastMove && (lastMove.from === squareName || lastMove.to === squareName)) {
+                        squareEl.classList.add('last-move');
+                    }
+
+                    if (inCheck && piece && piece.type === 'k' && piece.color === game.turn()) {
+                        squareEl.classList.add('in-check');
+                    }
+
+                    if (selectedSquare === squareName) {
+                        squareEl.classList.add('selected');
+                    }
+
+                    // Rank & File labels
+                    if (col === (boardFlipped ? 7 : 0)) {
+                        const rankLbl = document.createElement('span');
+                        rankLbl.className = 'coord coord-rank';
+                        rankLbl.innerText = 8 - row;
+                        squareEl.appendChild(rankLbl);
+                    }
+                    if (row === (boardFlipped ? 0 : 7)) {
+                        const fileLbl = document.createElement('span');
+                        fileLbl.className = 'coord coord-file';
+                        fileLbl.innerText = String.fromCharCode(97 + col);
+                        squareEl.appendChild(fileLbl);
+                    }
+
+                    // Render Piece SVG
+                    if (piece) {
+                        const pieceEl = document.createElement('div');
+                        pieceEl.className = 'piece';
+                        pieceEl.innerHTML = PIECE_SVGS[piece.color][piece.type];
+                        squareEl.appendChild(pieceEl);
+                    }
+
+                    // Move dots / capture rings
+                    const isLegal = legalMoves.find(m => m.to === squareName);
+                    if (isLegal) {
+                        if (isLegal.captured) {
+                            const ring = document.createElement('div');
+                            ring.className = 'capture-ring';
+                            squareEl.appendChild(ring);
+                        } else {
+                            const dot = document.createElement('div');
+                            dot.className = 'move-dot';
+                            squareEl.appendChild(dot);
+                        }
+                    }
+
+                    squareEl.onclick = () => handleSquareClick(squareName);
+                    boardEl.appendChild(squareEl);
+                }
+            }
+        }
+
+        function handleSquareClick(square) {
+            if (game.game_over()) return;
+
+            if (gameMode === 'ai' && game.turn() !== playerColor) return;
+            if (gameMode === 'p2p' && p2pConn && game.turn() !== playerColor) return;
+
+            const piece = game.get(square);
+
+            if (selectedSquare) {
+                if (selectedSquare === square) {
+                    selectedSquare = null;
+                    legalMoves = [];
+                    renderBoard();
+                    return;
+                }
+
+                const move = legalMoves.find(m => m.to === square);
+                if (move) {
+                    if (move.flags.includes('p')) {
+                        pendingPromotion = { from: selectedSquare, to: square };
+                        showPromotionModal(game.turn());
+                        return;
+                    }
+
+                    executeMove({ from: selectedSquare, to: square });
+                    selectedSquare = null;
+                    legalMoves = [];
+                    return;
+                }
+            }
+
+            if (piece && piece.color === game.turn()) {
+                selectedSquare = square;
+                legalMoves = game.moves({ square: square, verbose: true });
+                audio.vibrate(10);
+                renderBoard();
+            } else {
+                selectedSquare = null;
+                legalMoves = [];
+                renderBoard();
+            }
+        }
+
+        function executeMove(moveObj) {
+            const res = game.move(moveObj);
+            if (!res) return;
+
+            if (res.captured) audio.playCapture();
+            else audio.playMove();
+
+            if (game.in_check()) audio.playCheck();
+
+            renderBoard();
+            updateUI();
+
+            if (gameMode === 'p2p' && p2pConn) {
+                p2pConn.send({ type: 'MOVE', move: moveObj });
+            }
+
+            if (gameMode === 'local') {
+                boardFlipped = game.turn() === 'b';
+                renderBoard();
+            }
+
+            if (gameMode === 'ai' && !game.game_over() && game.turn() !== playerColor) {
+                document.getElementById('status-turn').innerHTML = `<span class="w-2 h-2 rounded-full bg-pink-400 animate-ping"></span> AI Thinking...`;
+                setTimeout(makeAIMove, 200);
+            }
+        }
+
+        function makeAIMove() {
+            if (game.game_over()) return;
+            const depth = AI_PRESETS[aiLevel].depth;
+            const move = getBestMove(game, depth);
+            if (move) executeMove(move);
+        }
+
+        function updateUI() {
+            // Move history
+            const history = game.history({ verbose: true });
+            const logEl = document.getElementById('notation-log');
+
+            if (history.length === 0) {
+                logEl.innerHTML = `<div class="text-gray-500 italic text-center py-8">Game ready. Make your move!</div>`;
+            } else {
+                let html = '';
+                for (let i = 0; i < history.length; i += 2) {
+                    const num = Math.floor(i / 2) + 1;
+                    const wM = history[i].san;
+                    const bM = history[i + 1] ? history[i + 1].san : '';
+                    html += `
+                        <div class="flex items-center justify-between px-2 py-0.5 rounded ${i % 4 === 0 ? 'bg-slate-900/60' : ''}">
+                            <span class="text-gray-500 w-6 font-bold">${num}.</span>
+                            <span class="font-extrabold text-amber-300 flex-1">${wM}</span>
+                            <span class="font-extrabold text-cyan-400 flex-1">${bM}</span>
+                        </div>
+                    `;
+                }
+                logEl.innerHTML = html;
+                logEl.scrollTop = logEl.scrollHeight;
+            }
+
+            // Captured pieces
+            updateCaptured();
+
+            // Eval bar
+            const evalScore = evaluateBoard(game);
+            let pct = 50 + (evalScore / 20);
+            pct = Math.max(5, Math.min(95, pct));
+            document.getElementById('eval-bar-fill').style.height = `${pct}%`;
+            document.getElementById('eval-text').innerText = (evalScore / 100).toFixed(1);
+
+            // Status turn
+            const statusTurn = document.getElementById('status-turn');
+            if (game.game_over()) {
+                if (game.in_checkmate()) {
+                    const winner = game.turn() === 'w' ? 'Black' : 'White';
+                    statusTurn.className = "text-[11px] font-black px-3 py-1 rounded-lg bg-pink-500/20 text-pink-400 border border-pink-500/40";
+                    statusTurn.innerText = `Checkmate! ${winner} Wins!`;
+                    showToast(`Checkmate! ${winner} Victory!`);
+                } else if (game.in_draw()) {
+                    statusTurn.className = "text-[11px] font-black px-3 py-1 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/40";
+                    statusTurn.innerText = `Game Drawn`;
+                    showToast(`Draw Game`);
+                }
+            } else {
+                if (gameMode === 'ai') {
+                    if (game.turn() === playerColor) {
+                        statusTurn.className = "text-[11px] font-extrabold px-3 py-1 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 flex items-center gap-1.5 shadow-sm";
+                        statusTurn.innerHTML = `<span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span> Your Turn`;
+                    } else {
+                        statusTurn.className = "text-[11px] font-extrabold px-3 py-1 rounded-lg bg-pink-500/10 text-pink-400 border border-pink-500/30 flex items-center gap-1.5 shadow-sm";
+                        statusTurn.innerHTML = `<span class="w-2 h-2 rounded-full bg-pink-400 animate-pulse"></span> AI Thinking...`;
+                    }
+                } else {
+                    const activeP = game.turn() === 'w' ? 'White' : 'Black';
+                    statusTurn.className = "text-[11px] font-black px-3 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30";
+                    statusTurn.innerText = `${activeP}'s Turn`;
+                }
+            }
+        }
+
+        function updateCaptured() {
+            const history = game.history({ verbose: true });
+            const capW = [];
+            const capB = [];
+
+            history.forEach(m => {
+                if (m.captured) {
+                    if (m.color === 'w') capW.push(m.captured);
+                    else capB.push(m.captured);
+                }
+            });
+
+            const renderHTML = (list, capturerColor) => list.map(p => {
+                const vicColor = capturerColor === 'w' ? 'b' : 'w';
+                return `<span class="${vicColor === 'b' ? 'text-cyan-400' : 'text-amber-300'}">${PIECE_UNICODES[vicColor][p]}</span>`;
+            }).join(' ');
+
+            document.getElementById('bottom-captured').innerHTML = playerColor === 'w' ? renderHTML(capW, 'w') : renderHTML(capB, 'b');
+            document.getElementById('top-captured').innerHTML = playerColor === 'w' ? renderHTML(capB, 'b') : renderHTML(capW, 'w');
+        }
+
+        /* ===================================================================
+           5. CONTROLS & SIDE PANEL LOGIC
+           =================================================================== */
+        function changeAILevel(val) {
+            aiLevel = parseInt(val);
+            const preset = AI_PRESETS[aiLevel];
+            document.getElementById('ai-level-title').innerText = `Level ${aiLevel}: ${preset.name}`;
+            document.getElementById('ai-elo-badge').innerText = preset.elo;
+            document.getElementById('ai-style-info').innerText = preset.style;
+            document.getElementById('top-name').innerText = preset.name;
+            document.getElementById('top-tag').innerText = preset.elo;
+            showToast(`AI Level: ${preset.name}`);
+        }
+
+        function setPlayerColor(color) {
+            playerColor = color;
+            boardFlipped = color === 'b';
+            document.getElementById('btn-side-w').className = color === 'w' ? "flex-1 py-2 rounded-xl border border-cyan-500/60 bg-cyan-500/20 text-cyan-300 font-extrabold text-xs flex items-center justify-center gap-1 shadow-sm" : "flex-1 py-2 rounded-xl border border-street-border bg-slate-800/40 text-gray-400 font-extrabold text-xs flex items-center justify-center gap-1 hover:border-slate-600";
+            document.getElementById('btn-side-b').className = color === 'b' ? "flex-1 py-2 rounded-xl border border-cyan-500/60 bg-cyan-500/20 text-cyan-300 font-extrabold text-xs flex items-center justify-center gap-1 shadow-sm" : "flex-1 py-2 rounded-xl border border-street-border bg-slate-800/40 text-gray-400 font-extrabold text-xs flex items-center justify-center gap-1 hover:border-slate-600";
+            restartGame();
+        }
+
+        function requestHint() {
+            if (game.game_over()) return;
+            const hint = getBestMove(game, 3);
+            if (hint) {
+                selectedSquare = hint.from;
+                legalMoves = [hint];
+                renderBoard();
+                showToast(`Hint: ${hint.from.toUpperCase()} ➔ ${hint.to.toUpperCase()}`);
+            }
+        }
+
+        function undoMove() {
+            if (gameMode === 'ai') {
+                game.undo();
+                game.undo();
+            } else {
+                game.undo();
+            }
+            selectedSquare = null;
+            legalMoves = [];
+            renderBoard();
+            updateUI();
+            showToast('Undo Successful');
+        }
+
+        function flipBoard() {
+            boardFlipped = !boardFlipped;
+            renderBoard();
+        }
+
+        function restartGame() {
+            game.reset();
+            selectedSquare = null;
+            legalMoves = [];
+            renderBoard();
+            updateUI();
+            showToast('Game Reset');
+
+            if (gameMode === 'ai' && playerColor === 'b') {
+                setTimeout(makeAIMove, 400);
+            }
+        }
+
+        function copyPGN() {
+            const pgn = game.pgn();
+            if (!pgn) {
+                showToast('No PGN to copy');
+                return;
+            }
+            navigator.clipboard.writeText(pgn).then(() => showToast('PGN Copied!'));
+        }
+
+        function showPromotionModal(color) {
+            const container = document.getElementById('promo-options');
+            container.innerHTML = '';
+            ['q', 'r', 'b', 'n'].forEach(p => {
+                const btn = document.createElement('button');
+                btn.className = "w-14 h-14 bg-slate-900 border border-slate-700 rounded-2xl flex items-center justify-center p-2 active:scale-95 transition";
+                btn.innerHTML = PIECE_SVGS[color][p];
+                btn.onclick = () => {
+                    executeMove({ ...pendingPromotion, promotion: p });
+                    document.getElementById('promo-modal').classList.add('hidden');
+                    pendingPromotion = null;
+                };
+                container.appendChild(btn);
+            });
+            document.getElementById('promo-modal').classList.remove('hidden');
+        }
+
+
+        /* ===================================================================
+           6. ACADEMY OPENINGS CATALOG ENGINE
+           =================================================================== */
+        const ACADEMY_DATA = {
+            white: [
+                { id: 'ruy-lopez', name: 'Ruy Lopez (Spanish Opening)', moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Ba4', 'Nf6', 'O-O'], plans: ['Controls center with e4', 'Pressures c6 defender'], desc: 'Classic opening putting immediate central pressure on Black.' },
+                { id: 'italian-game', name: 'Italian Game', moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Bc5', 'c3', 'Nf6', 'd4'], plans: ['Targets f7 weakness', 'Rapid pawn center'], desc: 'Develops bishop to c4 targeting weak f7 square early.' },
+                { id: 'queens-gambit', name: "Queen's Gambit", moves: ['d4', 'd5', 'c4', 'e6', 'Nc3', 'Nf6', 'Bg5'], plans: ['Offers c4 wing pawn for center dominance'], desc: 'Offers a temporary wing pawn to establish a strong pawn center.' },
+                { id: 'london-system', name: 'London System', moves: ['d4', 'd5', 'Bf4', 'Nf6', 'e3', 'c5', 'c3'], plans: ['Solid d4-e3-c3 pyramid structure'], desc: 'Rock-solid universal line for White against any Black setup.' }
+            ],
+            black: [
+                { id: 'sicilian-najdorf', name: 'Sicilian Defense (Najdorf)', moves: ['e4', 'c5', 'Nf3', 'd6', 'd4', 'cxd4', 'Nxd4', 'Nf6', 'Nc3', 'a6'], plans: ['Flank attack against e4 center', 'Asymmetrical winning play'], desc: 'Fischer & Kasparov’s primary weapon offering highest win rates.' },
+                { id: 'french-defense', name: 'French Defense', moves: ['e4', 'e6', 'd4', 'd5', 'Nc3', 'Nf6', 'Bg5', 'Be7', 'e5'], plans: ['Solid e6-d5 pawn chain', 'Counter-strike with c5'], desc: 'Counter-attacking defense creating tight pawn structures.' },
+                { id: 'caro-kann', name: 'Caro-Kann Defense', moves: ['e4', 'c6', 'd4', 'd5', 'Nc3', 'dxe4', 'Nxe4', 'Bf5'], plans: ['Supports d5 without trapping light bishop'], desc: 'Extremely resilient defense with solid pawn structures.' },
+                { id: 'kings-indian', name: "King's Indian Defense", moves: ['d4', 'Nf6', 'c4', 'g6', 'Nc3', 'Bg7', 'e4', 'd6'], plans: ['Fianchetto g7 monster bishop', 'Kingside pawn storm'], desc: 'Hypermodern setup conceding space early to counter-attack later.' }
+            ]
+        };
+
+        let currentAcademyCat = 'white';
+        let currentOpening = null;
+        let acadGame = new Chess();
+        let acadStep = 0;
+
+        function initAcademy() {
+            setAcademyCat('white');
+        }
+
+        function setAcademyCat(cat) {
+            currentAcademyCat = cat;
+            document.getElementById('acad-btn-w').className = cat === 'white' ? "flex-1 py-1.5 text-xs font-extrabold rounded-lg bg-cyan-500 text-slate-950 transition" : "flex-1 py-1.5 text-xs font-extrabold rounded-lg text-gray-400 transition";
+            document.getElementById('acad-btn-b').className = cat === 'black' ? "flex-1 py-1.5 text-xs font-extrabold rounded-lg bg-pink-500 text-slate-950 transition" : "flex-1 py-1.5 text-xs font-extrabold rounded-lg text-gray-400 transition";
+            renderAcademyList();
+            if (ACADEMY_DATA[cat].length > 0) selectAcademyOpening(ACADEMY_DATA[cat][0].id);
+        }
+
+        function renderAcademyList() {
+            const container = document.getElementById('academy-list');
+            const search = (document.getElementById('academy-search')?.value || '').toLowerCase();
+            container.innerHTML = '';
+
+            const list = ACADEMY_DATA[currentAcademyCat].filter(item => item.name.toLowerCase().includes(search));
+            list.forEach(item => {
+                const card = document.createElement('div');
+                card.className = "p-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/50 cursor-pointer transition";
+                card.onclick = () => selectAcademyOpening(item.id);
+                card.innerHTML = `
+                    <div class="font-extrabold text-xs text-gray-200">${item.name}</div>
+                    <div class="text-[10px] text-cyan-400 font-mono">${item.moves.slice(0, 4).join(' ')}...</div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function selectAcademyOpening(id) {
+            currentOpening = ACADEMY_DATA[currentAcademyCat].find(o => o.id === id);
+            if (!currentOpening) return;
+
+            acadGame.reset();
+            acadStep = 0;
+
+            document.getElementById('acad-title').innerText = currentOpening.name;
+            document.getElementById('acad-badge').innerText = currentAcademyCat === 'white' ? 'White Attack' : 'Black Defense';
+            document.getElementById('acad-desc').innerText = currentOpening.desc;
+            document.getElementById('acad-plans').innerHTML = currentOpening.plans.map(p => `<li>${p}</li>`).join('');
+
+            updateAcademyBoard();
+        }
+
+        function updateAcademyBoard() {
+            const boardEl = document.getElementById('academy-board');
+            boardEl.innerHTML = '';
+            const board = acadGame.board();
+            const lastMove = acadGame.history({ verbose: true }).pop();
+
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const squareName = String.fromCharCode(97 + c) + (8 - r);
+                    const piece = board[r][c];
+                    const squareEl = document.createElement('div');
+                    squareEl.className = `square ${(r + c) % 2 === 0 ? 'light' : 'dark'}`;
+
+                    if (lastMove && (lastMove.from === squareName || lastMove.to === squareName)) {
+                        squareEl.classList.add('last-move');
+                    }
+
+                    if (piece) {
+                        const pieceEl = document.createElement('div');
+                        pieceEl.className = 'piece';
+                        pieceEl.innerHTML = PIECE_SVGS[piece.color][piece.type];
+                        squareEl.appendChild(pieceEl);
+                    }
+                    boardEl.appendChild(squareEl);
+                }
+            }
+            document.getElementById('acad-step').innerText = `${acadStep}/${currentOpening.moves.length}`;
+        }
+
+        function acadNext() {
+            if (!currentOpening || acadStep >= currentOpening.moves.length) return;
+            acadGame.move(currentOpening.moves[acadStep]);
+            acadStep++;
+            audio.playMove();
+            updateAcademyBoard();
+        }
+
+        function acadPrev() {
+            if (acadStep <= 0) return;
+            acadGame.undo();
+            acadStep--;
+            updateAcademyBoard();
+        }
+
+        function loadAcademyToBoard() {
+            if (!currentOpening) return;
+            game.load(acadGame.fen());
+            switchTab('play');
+            renderBoard();
+            updateUI();
+            showToast(`Loaded ${currentOpening.name}`);
+        }
+
+
+        /* ===================================================================
+           7. MULTIPLAYER & PEERJS NETWORKING
+           =================================================================== */
+        function startPassPlay() {
+            gameMode = 'local';
+            restartGame();
+            switchTab('play');
+            showToast('Pass & Play Activated');
+        }
+
+        function initP2P() {
+            peer = new Peer();
+            peer.on('open', (id) => {
+                document.getElementById('p2p-my-id').value = id;
+            });
+            peer.on('connection', (conn) => {
+                p2pConn = conn;
+                bindPeerEvents();
+                gameMode = 'p2p';
+                playerColor = 'b';
+                boardFlipped = true;
+                switchTab('play');
+                restartGame();
+                showToast('Opponent Connected!');
+            });
+        }
+
+        function connectP2P() {
+            const peerId = document.getElementById('p2p-peer-id').value.trim();
+            if (!peerId) {
+                showToast('Enter opponent code');
+                return;
+            }
+            p2pConn = peer.connect(peerId);
+            bindPeerEvents();
+            gameMode = 'p2p';
+            playerColor = 'w';
+            boardFlipped = false;
+            switchTab('play');
+            restartGame();
+            showToast('Connecting...');
+        }
+
+        function bindPeerEvents() {
+            p2pConn.on('open', () => {
+                document.getElementById('p2p-status').innerText = 'Status: Connected!';
+                showToast('Connection Live!');
+            });
+            p2pConn.on('data', (data) => {
+                if (data.type === 'MOVE') {
+                    game.move(data.move);
+                    audio.playMove();
+                    renderBoard();
+                    updateUI();
+                }
+            });
+        }
+
+        function copyP2PCode() {
+            const code = document.getElementById('p2p-my-id').value;
+            navigator.clipboard.writeText(code).then(() => showToast('Code Copied!'));
+        }
+
+
+        /* ===================================================================
+           8. NAVIGATION & UTILITIES
+           =================================================================== */
+        function switchTab(tabId) {
+            audio.vibrate(10);
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+
+            document.querySelectorAll('nav button').forEach(btn => btn.className = 'flex flex-col items-center space-y-1 text-gray-400 hover:text-white transition');
+            document.getElementById(`nav-${tabId}`).className = 'flex flex-col items-center space-y-1 text-cyan-400 transition';
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-text').innerText = msg;
+            toast.classList.remove('translate-y-10', 'opacity-0');
+            setTimeout(() => toast.classList.add('translate-y-10', 'opacity-0'), 2200);
+        }
+    </script>
+</body>
+</html>
